@@ -83,7 +83,11 @@ public class DefaultNotificationCenterTest
                 true, "boolean key", null, "null key", "xkey");
 
         assertEquals(5, userInfo.size());
-        assertEquals("{xkey=null, 1=int key, Key=Value, true=boolean key, null=null key}", userInfo.toString());
+        assertEquals("Value",userInfo.get("Key"));
+        assertEquals("int key",userInfo.get("1"));
+        assertEquals("boolean key",userInfo.get("true"));
+        assertEquals("null key",userInfo.get("null"));
+        assertEquals(null,userInfo.get("xkey"));
     }
 
     @Test
@@ -435,5 +439,76 @@ public class DefaultNotificationCenterTest
         assertEquals(hashMap, captor.getValue().getUserInfo());
     }
 
+    @Test
+    public void testConcurrentModification() throws Exception
+    {
 
+        final int[] callCount = new int[]{0};
+        Observer concurrentObserver = new Observer() {
+
+            @Override
+            public void receivedNotification(Notification notification)
+            {
+                callCount[0]++;
+                center.removeObserver(this);
+            }
+        };
+
+        center.addObserver(concurrentObserver);
+
+        center.postNotification("Test");
+        center.postNotification("Test");
+
+        assertEquals(1,callCount[0]);
+    }
+
+    @Test
+    public void testMultiThread() throws Exception
+    {
+        final Object outerMonitor = new Object();
+        final Object innerMonitor = new Object();
+        final boolean[] isInNotification = new boolean[]{false};
+
+        Observer watingObserver = new Observer() {
+            @Override
+            public void receivedNotification(Notification notification)
+            {
+                try {
+                    isInNotification[0] = true;
+                    synchronized(innerMonitor) {
+                        innerMonitor.notify();
+                    }
+                    synchronized(outerMonitor) {
+                        outerMonitor.wait();
+                    }
+                } catch (final InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+
+        center.addObserver(watingObserver);
+
+        new Thread(new Runnable(){
+            @Override
+            public void run()
+            {
+                center.postNotification("NotifyFromThread");
+
+            }
+        }).start();
+
+
+        if (! isInNotification[0]) {
+            synchronized(innerMonitor) {
+                innerMonitor.wait();
+            }
+        }
+
+        center.addObserver(observer);
+
+        synchronized(outerMonitor) {
+            outerMonitor.notify();
+        }
+    }
 }
